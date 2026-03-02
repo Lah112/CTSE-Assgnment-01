@@ -1,0 +1,251 @@
+openapi: 3.0.3
+
+info:
+  title: DriveCore — Inventory Service API
+  description: |
+    REST API for the DriveCore Inventory & Spare Parts Management Microservice.
+
+    **Inter-Service Note:**
+    The `POST /api/inventory` endpoint internally calls the **Auth Service**
+    (`GET /api/auth/users/{userId}`) to verify that the supplied `userId` exists
+    before persisting the item. The Auth Service URL is configured via the
+    `AUTH_SERVICE_URL` environment variable.
+  version: 1.0.0
+  contact:
+    name: DriveCore Engineering
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3003
+    description: Local development server
+  - url: http://drivecore-inventory-service:3003
+    description: Docker Compose internal network
+
+tags:
+  - name: Inventory
+    description: Spare parts and garage inventory management
+  - name: Health
+    description: Service health checks
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the operational status of the service. Used by Docker/K8s probes.
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: drivecore-inventory-service
+
+  /api/inventory:
+    get:
+      tags:
+        - Inventory
+      summary: Get all inventory items
+      description: Retrieves a list of all spare parts and inventory items, ordered by most recently added.
+      operationId: getAllInventory
+      responses:
+        "200":
+          description: Inventory items retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  count:
+                    type: integer
+                    example: 2
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InventoryItem"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    post:
+      tags:
+        - Inventory
+      summary: Add a new inventory item
+      description: |
+        Creates a new spare-parts inventory record.
+
+        **Important:** Before inserting, this endpoint makes an internal HTTP request
+        to the Auth Service to verify that `userId` corresponds to a real, existing user.
+        The request will be rejected with `404` if the user is not found, or `503` if the
+        Auth Service is unreachable.
+      operationId: addInventoryItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddInventoryItemRequest"
+            example:
+              userId: "usr_abc123"
+              itemName: "Brake Pad Set - Front"
+              quantity: 20
+              price: 49.99
+      responses:
+        "201":
+          description: Inventory item created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Inventory item added successfully.
+                  data:
+                    $ref: "#/components/schemas/InventoryItem"
+        "404":
+          description: The provided userId was not found in the Auth Service
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                success: false
+                message: "User with ID 'usr_abc123' was not found. Cannot add inventory item."
+        "422":
+          description: Validation failed — one or more required fields are missing or invalid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: Validation failed
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        message:
+                          type: string
+        "502":
+          description: Auth Service returned an unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Auth Service is unreachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                success: false
+                message: Auth Service is currently unavailable. Please try again later.
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+components:
+  schemas:
+    InventoryItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Auto-incremented primary key
+          example: 1
+        user_id:
+          type: string
+          description: ID of the user who added this item (verified against Auth Service)
+          example: usr_abc123
+        item_name:
+          type: string
+          description: Name / description of the spare part or inventory item
+          example: Brake Pad Set - Front
+        quantity:
+          type: integer
+          description: Current stock quantity
+          example: 20
+        price:
+          type: number
+          format: float
+          description: Unit price in the local currency
+          example: 49.99
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the record was created
+          example: "2024-08-15T10:30:00.000Z"
+
+    AddInventoryItemRequest:
+      type: object
+      required:
+        - userId
+        - itemName
+        - quantity
+        - price
+      properties:
+        userId:
+          type: string
+          description: ID of the authenticated user adding the item. Will be verified against the Auth Service.
+          example: usr_abc123
+        itemName:
+          type: string
+          minLength: 2
+          maxLength: 200
+          description: Name of the spare part or inventory item
+          example: Brake Pad Set - Front
+        quantity:
+          type: integer
+          minimum: 0
+          description: Stock quantity being added
+          example: 20
+        price:
+          type: number
+          format: float
+          minimum: 0
+          description: Unit price
+          example: 49.99
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: An error occurred.
+
+  responses:
+    InternalServerError:
+      description: Unexpected server-side error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            message: Internal Server Error
