@@ -1,32 +1,27 @@
 {
   "name": "drivecore-booking-service",
   "version": "1.0.0",
-  "description": "DriveCore – Booking & Appointment Microservice",
+  "description": "DriveCore - Booking & Appointment Microservice",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "echo \"No tests specified yet\" && exit 0",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev --name init",
-    "db:push": "prisma db push",
-    "db:studio": "prisma studio"
+    "test": "echo \"No tests specified yet\" && exit 0"
   },
   "keywords": ["drivecore", "microservice", "booking", "nodejs"],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@prisma/client": "^5.16.0",
     "axios": "^1.7.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-validator": "^7.1.0",
-    "helmet": "^7.1.0"
+    "helmet": "^7.1.0",
+    "pg": "^8.12.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.4",
-    "prisma": "^5.16.0"
+    "nodemon": "^3.1.4"
   },
   "engines": {
     "node": ">=20.0.0"

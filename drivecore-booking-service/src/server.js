@@ -2,15 +2,17 @@
 
 const app = require('./app');
 const env = require('./config/env');
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
+const { pool, initTable } = require('./config/db');
 
 const start = async () => {
   try {
-    // ── Verify Prisma / database connectivity ────────────────────────────────
-    await prisma.$connect();
-    console.log('[DB] Prisma connected to PostgreSQL successfully.');
+    // ── Verify database connectivity ─────────────────────────────────────────
+    await pool.query('SELECT 1');
+    console.log('[DB] Connected to PostgreSQL successfully.');
+
+    // ── Run auto-migration: create bookings table if it does not exist ────────
+    await initTable();
+    console.log('[DB] Schema initialised.');
 
     const server = app.listen(env.port, () => {
       console.log(
@@ -23,8 +25,8 @@ const start = async () => {
     const shutdown = async (signal) => {
       console.log(`\n[SERVER] Received ${signal}. Shutting down gracefully...`);
       server.close(async () => {
-        await prisma.$disconnect();
-        console.log('[DB] Prisma disconnected.');
+        await pool.end();
+        console.log('[DB] Connection pool closed.');
         console.log('[SERVER] Shutdown complete.');
         process.exit(0);
       });
@@ -40,7 +42,7 @@ const start = async () => {
 
   } catch (err) {
     console.error('[SERVER] Failed to start:', err.message);
-    await prisma.$disconnect();
+    await pool.end();
     process.exit(1);
   }
 };

@@ -1,24 +1,43 @@
+# ════════════════════════════════════════════════════════════════════════════
+# Stage 1 – deps
+#   Install production dependencies only.
+#   node:20-alpine is sufficient — no OpenSSL or Debian packages needed
+#   because pg uses JS-native TLS (no native binary compilation required).
+# ════════════════════════════════════════════════════════════════════════════
 FROM node:20-alpine AS deps
-RUN apk add --no-cache libc6-compat openssl
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
 
-FROM node:20-alpine AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN npx prisma generate
 
+# Copy manifests first so Docker layer cache is invalidated only when
+# dependencies actually change, not on every source code edit.
+COPY package*.json ./
+
+RUN npm ci --omit=dev
+
+# ════════════════════════════════════════════════════════════════════════════
+# Stage 2 – runner (production image)
+# ════════════════════════════════════════════════════════════════════════════
 FROM node:20-alpine AS runner
+
+# dumb-init handles PID 1 signal forwarding so SIGTERM reaches the Node
+# process cleanly — essential for graceful shutdown on ECS/Docker.
+RUN apk add --no-cache dumb-init
+
 WORKDIR /app
-ENV NODE_ENV production
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nodejs -u 1001
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/prisma ./prisma
-USER nodejs
+
+# Non-root user for security — containers should never run as root.
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Copy only runtime artefacts from the deps stage.
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json ./
+COPY src ./src
+
+RUN chown -R appuser:appgroup /app
+
+USER appuser
+
 EXPOSE 3002
-CMD ["npm", "start"]
+
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "src/server.js"]
