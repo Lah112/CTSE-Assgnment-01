@@ -112,4 +112,37 @@ const login = async (req, res, next) => {
   }
 };
 
-module.exports = { register, login };
+/**
+ * GET /api/auth/users/:userId
+ * Inter-service endpoint — used by the Booking Service (and other services)
+ * to verify that a userId is valid before performing cross-service operations.
+ * Password is never included in the response.
+ */
+const getUserById = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await userModel.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: `User with id '${userId}' does not exist.`,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { register, login, getUserById };

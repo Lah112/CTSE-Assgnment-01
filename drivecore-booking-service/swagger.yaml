@@ -1,0 +1,294 @@
+openapi: 3.0.3
+
+info:
+  title: DriveCore – Booking Microservice API
+  description: |
+    Handles vehicle service appointment creation and retrieval for the
+    DriveCore Automobile Service & Repair Management platform.
+
+    **Inter-service communication note:**
+    `POST /api/bookings` internally calls the **Auth Service**
+    (`GET /api/auth/users/:userId`) to validate the supplied `userId` before
+    creating a record. If the Auth Service is unreachable or the user does not
+    exist the request is rejected with an appropriate error code.
+  version: 1.0.0
+  contact:
+    name: DriveCore Engineering
+
+servers:
+  - url: http://localhost:3002
+    description: Local development
+  - url: http://<booking-service-host>:3002
+    description: AWS ECS (production)
+
+tags:
+  - name: Bookings
+    description: Service appointment management
+  - name: Health
+    description: Service health check
+
+# ── Reusable components ────────────────────────────────────────────────────────
+components:
+  schemas:
+
+    ServiceType:
+      type: string
+      enum:
+        - OIL_CHANGE
+        - TIRE_ROTATION
+        - BRAKE_SERVICE
+        - GENERAL_INSPECTION
+        - ENGINE_REPAIR
+        - TRANSMISSION_SERVICE
+        - AC_SERVICE
+        - WHEEL_ALIGNMENT
+
+    BookingStatus:
+      type: string
+      enum:
+        - PENDING
+        - CONFIRMED
+        - IN_PROGRESS
+        - COMPLETED
+        - CANCELLED
+
+    Booking:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        userId:
+          type: string
+          format: uuid
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        vehicleNumber:
+          type: string
+          example: "WP CAB-1234"
+        date:
+          type: string
+          format: date-time
+          example: "2025-09-15T09:00:00.000Z"
+        serviceType:
+          $ref: "#/components/schemas/ServiceType"
+        status:
+          $ref: "#/components/schemas/BookingStatus"
+        notes:
+          type: string
+          nullable: true
+          example: "Please check the AC as well."
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateBookingRequest:
+      type: object
+      required:
+        - userId
+        - vehicleNumber
+        - date
+        - serviceType
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: UUID of the user — validated against the Auth Service before creation.
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        vehicleNumber:
+          type: string
+          maxLength: 20
+          example: "WP CAB-1234"
+        date:
+          type: string
+          format: date-time
+          description: Must be a future date-time in ISO 8601 format.
+          example: "2025-09-15T09:00:00.000Z"
+        serviceType:
+          $ref: "#/components/schemas/ServiceType"
+        notes:
+          type: string
+          maxLength: 500
+          nullable: true
+          example: "Vehicle makes a noise when turning left."
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+        data:
+          type: object
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: "An error occurred."
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+# ── Paths ──────────────────────────────────────────────────────────────────────
+paths:
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      responses:
+        "200":
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  service:
+                    type: string
+                    example: "drivecore-booking-service"
+                  status:
+                    type: string
+                    example: "healthy"
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /api/bookings:
+    post:
+      tags: [Bookings]
+      summary: Create a new service booking
+      description: |
+        Creates a vehicle service appointment.
+
+        **Inter-service step:** Before inserting the record, this endpoint
+        makes an HTTP GET request to the Auth Service
+        (`AUTH_SERVICE_URL/api/auth/users/:userId`) to confirm the user exists.
+        The booking is rejected (404) if the user is not found, or (503) if the
+        Auth Service is unreachable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookingRequest"
+            example:
+              userId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+              vehicleNumber: "WP CAB-1234"
+              date: "2025-09-15T09:00:00.000Z"
+              serviceType: "OIL_CHANGE"
+              notes: "Please top up the coolant too."
+      responses:
+        "201":
+          description: Booking created successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Booking"
+        "404":
+          description: User not found in the Auth Service.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                success: false
+                message: "User with id 'f47ac...' does not exist."
+        "422":
+          description: Validation error in request body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationErrorResponse"
+        "503":
+          description: Auth Service is unreachable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/bookings/{userId}:
+    get:
+      tags: [Bookings]
+      summary: Get all bookings for a user
+      description: |
+        Returns all service bookings associated with the given `userId`,
+        sorted by appointment date ascending (nearest upcoming first).
+
+        Also validates the user via the Auth Service before returning results.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: UUID of the user whose bookings to retrieve.
+          schema:
+            type: string
+            format: uuid
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+      responses:
+        "200":
+          description: Bookings retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  count:
+                    type: integer
+                    example: 2
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Booking"
+        "400":
+          description: Invalid userId format.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationErrorResponse"
+        "404":
+          description: User not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Auth Service unreachable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"

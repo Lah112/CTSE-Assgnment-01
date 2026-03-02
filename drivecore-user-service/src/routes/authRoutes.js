@@ -1,8 +1,8 @@
 'use strict';
 
 const { Router } = require('express');
-const { body } = require('express-validator');
-const { register, login } = require('../controllers/authController');
+const { body, param } = require('express-validator');
+const { register, login, getUserById } = require('../controllers/authController');
 
 const router = Router();
 
@@ -54,5 +54,16 @@ router.post('/register', registerRules, register);
  * @access Public
  */
 router.post('/login', loginRules, login);
+
+/**
+ * @route  GET /api/auth/users/:userId
+ * @desc   Verify a user exists by UUID — consumed internally by other microservices
+ * @access Internal (service-to-service only; no public client should call this)
+ */
+router.get(
+  '/users/:userId',
+  [param('userId').isUUID().withMessage('userId must be a valid UUID.')],
+  getUserById
+);
 
 module.exports = router;
