@@ -13,7 +13,7 @@
  *   VITE_BILLING_SERVICE_URL=http://18.215.xx.xx:3004
  */
 const services = {
-  AUTH:      import.meta.env.VITE_AUTH_SERVICE_URL      || 'http://13.53.85.82:3001',
+  AUTH:      import.meta.env.VITE_AUTH_SERVICE_URL      || 'http://16.16.104.164:3001',
   BOOKING:   import.meta.env.VITE_BOOKING_SERVICE_URL   || 'http://13.60.249.34:3002',
   INVENTORY: import.meta.env.VITE_INVENTORY_SERVICE_URL || 'http://13.49.23.2:3003',
   BILLING:   import.meta.env.VITE_BILLING_SERVICE_URL   || 'http://16.170.253.87:3004',
