@@ -1,0 +1,84 @@
+name: DriveCore Frontend CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-scan:
+    name: Lint & Security Scan
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        # Scope all steps to the frontend service directory
+        working-directory: drivecore-frontend
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout source
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # 2. Set up Node.js 20
+      # -----------------------------------------------------------------------
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: drivecore-frontend/package-lock.json
+
+      # -----------------------------------------------------------------------
+      # 3. Install dependencies (deterministic, uses package-lock.json)
+      # -----------------------------------------------------------------------
+      - name: Install dependencies
+        run: npm ci
+
+      # -----------------------------------------------------------------------
+      # 4. ESLint — static analysis for code quality and React best practices
+      # -----------------------------------------------------------------------
+      - name: Run ESLint
+        run: npm run lint
+
+      # -----------------------------------------------------------------------
+      # 5. DevSecOps — SAST dependency scan with Snyk
+      #
+      #    Snyk analyses the npm dependency tree for known CVEs.
+      #    Add SNYK_TOKEN to GitHub → Settings → Secrets → Actions.
+      #    The SARIF upload step is intentionally omitted to avoid path
+      #    resolution errors in repos without Code Scanning enabled.
+      # -----------------------------------------------------------------------
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        continue-on-error: false
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --file=drivecore-frontend/package.json
+
+  build:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    needs: lint-and-scan
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Verify the multi-stage Dockerfile builds successfully.
+      # Service URLs are stubbed with placeholders — the real values
+      # are injected at deploy time via --build-arg in your ECS pipeline.
+      - name: Build Docker image
+        run: |
+          docker build \
+            --build-arg VITE_AUTH_SERVICE_URL=http://stub:3001 \
+            --build-arg VITE_BOOKING_SERVICE_URL=http://stub:3002 \
+            --build-arg VITE_INVENTORY_SERVICE_URL=http://stub:3003 \
+            --build-arg VITE_BILLING_SERVICE_URL=http://stub:3004 \
+            -t drivecore-frontend:ci \
+            ./drivecore-frontend

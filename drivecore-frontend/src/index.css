@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: #020617; /* slate-950 */
+    color: #f1f5f9;            /* slate-100 */
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Thin scrollbar for dark theme */
+  ::-webkit-scrollbar        { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track  { background: #0f172a; }
+  ::-webkit-scrollbar-thumb  { background: #334155; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #475569; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Car Drive Animation (Landing Page hero)
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Car translates from -320 px (off-screen left) to 100vw + 320 px (off-screen right) */
+@keyframes drive-ltr {
+  0%   { transform: translateX(-320px);              }
+  100% { transform: translateX(calc(100vw + 320px)); }
+}
+
+/* Wheel spin — needs transform-box: fill-box so the origin is the wheel centre, not the SVG top-left */
+@keyframes wheel-turn {
+  to { transform: rotate(360deg); }
+}
+
+/* Speed-line pulse: briefly visible, then fades and collapses toward the right edge */
+@keyframes speed-line-pulse {
+  0%   { opacity: 1;   transform: scaleX(1);   }
+  60%  { opacity: 0.5;                         }
+  100% { opacity: 0;   transform: scaleX(0.4); }
+}
+
+.animate-car-drive {
+  animation: drive-ltr 8s linear infinite;
+  will-change: transform;
+}
+
+/* Applied to SVG <g> elements wrapping each wheel */
+.animate-wheel-spin {
+  transform-box:    fill-box;
+  transform-origin: center;
+  animation: wheel-turn 0.55s linear infinite;
+}
+
+/* Applied to each speed-line div */
+.animate-speed-line {
+  transform-origin: right center;
+  animation: speed-line-pulse 0.9s ease-in-out infinite;
+}
+
+@layer components {
+  /* Reusable card shell */
+  .dc-card {
+    @apply bg-slate-900 border border-slate-800 rounded-xl;
+  }
+
+  /* Input shared style */
+  .dc-input {
+    @apply w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5
+           text-slate-100 placeholder-slate-500 text-sm
+           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+           transition-colors duration-150;
+  }
+
+  /* Primary button */
+  .dc-btn-primary {
+    @apply bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg
+           px-5 py-2.5 text-sm transition-all duration-150 active:scale-95
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+
+  /* Ghost / secondary button */
+  .dc-btn-ghost {
+    @apply bg-transparent hover:bg-slate-800 border border-slate-700 text-slate-300
+           font-medium rounded-lg px-5 py-2.5 text-sm transition-all duration-150;
+  }
+}
