@@ -37,11 +37,7 @@ jobs:
       # ── 4. Generate Prisma client ─────────────────────────────────────────
       # Prisma client must be generated before any code that imports it can run.
       # In CI we use a dummy DATABASE_URL since we are not connecting to a real DB.
-      - name: Generate Prisma client
-        run: npx prisma generate
-        env:
-          DATABASE_URL: "postgresql://user:pass@localhost/db"
-
+       
       # ── 5. Run tests ──────────────────────────────────────────────────────
       - name: Run tests
         run: npm test
