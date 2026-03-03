@@ -1,0 +1,253 @@
+openapi: 3.0.3
+
+info:
+  title: DriveCore — Billing Service API
+  description: >
+    Manages invoice creation and retrieval for vehicle repairs
+    within the DriveCore microservices platform.
+    Before creating an invoice the service verifies the supplied userId
+    against the Auth Service (inter-service call).
+  version: 1.0.0
+  contact:
+    name: DriveCore Engineering
+
+servers:
+  - url: http://localhost:3004
+    description: Local development
+  - url: http://drivecore-billing-service:3004
+    description: Docker Compose internal network
+
+tags:
+  - name: Billing
+    description: Invoice creation and retrieval
+  - name: Health
+    description: Service liveness probe
+
+paths:
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Service health check
+      description: Returns the service status. Used by Docker/Kubernetes probes.
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: drivecore-billing-service
+
+  /api/billing:
+    post:
+      tags: [Billing]
+      summary: Create a new invoice
+      description: >
+        Creates a billing invoice for a completed or in-progress repair.
+
+        **Inter-Service Communication:**
+        Before inserting the invoice this endpoint makes a synchronous
+        `GET {AUTH_SERVICE_URL}/api/auth/users/:userId` call to verify the
+        supplied `userId` is a valid, registered user. The request is rejected
+        if the Auth Service returns 404 or is unreachable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInvoiceRequest'
+            example:
+              userId: "usr_abc123"
+              bookingId: "bkg_xyz789"
+              amount: 249.99
+              status: "pending"
+      responses:
+        '201':
+          description: Invoice created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+        '404':
+          description: userId not found in the Auth Service
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                message: "User with ID 'usr_abc123' was not found. Cannot create invoice."
+        '422':
+          description: Request body failed validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '502':
+          description: Auth Service returned an unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Auth Service is unreachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/billing/{userId}:
+    get:
+      tags: [Billing]
+      summary: Get all invoices for a user
+      description: >
+        Returns every invoice associated with the given `userId`,
+        ordered by creation date descending.
+        Returns an empty array (not 404) when the user has no invoices yet.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: The ID of the user whose invoices are being retrieved
+          schema:
+            type: string
+            example: usr_abc123
+      responses:
+        '200':
+          description: List of invoices (may be empty)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  count:
+                    type: integer
+                    example: 2
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Invoice'
+        '422':
+          description: Invalid userId parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# =============================================================================
+components:
+  schemas:
+
+    CreateInvoiceRequest:
+      type: object
+      required: [userId, bookingId, amount, status]
+      properties:
+        userId:
+          type: string
+          description: ID of the user being billed (verified against Auth Service)
+          example: usr_abc123
+        bookingId:
+          type: string
+          description: ID of the booking/appointment this invoice relates to
+          example: bkg_xyz789
+        amount:
+          type: number
+          format: float
+          minimum: 0
+          description: Total invoice amount in the base currency
+          example: 249.99
+        status:
+          type: string
+          enum: [pending, paid, overdue, cancelled]
+          description: Current payment status of the invoice
+          example: pending
+
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        user_id:
+          type: string
+          example: usr_abc123
+        booking_id:
+          type: string
+          example: bkg_xyz789
+        amount:
+          type: string
+          description: Returned as a string by pg's DECIMAL type
+          example: "249.99"
+        status:
+          type: string
+          enum: [pending, paid, overdue, cancelled]
+          example: pending
+        created_at:
+          type: string
+          format: date-time
+          example: "2025-07-01T10:30:00.000Z"
+
+    InvoiceResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Invoice created successfully.
+        data:
+          $ref: '#/components/schemas/Invoice'
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: An error occurred.
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: Validation failed
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                example: amount
+              message:
+                type: string
+                example: amount must be a non-negative number

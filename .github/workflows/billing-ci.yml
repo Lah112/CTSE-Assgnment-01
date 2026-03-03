@@ -1,0 +1,72 @@
+name: DriveCore Billing Service CI
+
+# Trigger on every push or pull-request that touches the main branch.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-scan:
+    name: Build, Test & SAST Scan
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        # Scope all steps to the billing service subdirectory so that
+        # npm commands resolve the correct package.json automatically.
+        working-directory: drivecore-billing-service
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Check out the repository
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # 2. Set up Node.js 20
+      #    The cache key is tied to package-lock.json so the cache is
+      #    invalidated only when dependencies actually change.
+      # -----------------------------------------------------------------------
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: drivecore-billing-service/package-lock.json
+
+      # -----------------------------------------------------------------------
+      # 3. Install production + dev dependencies
+      #    npm ci uses package-lock.json for deterministic, reproducible installs.
+      # -----------------------------------------------------------------------
+      - name: Install dependencies
+        run: npm ci
+
+      # -----------------------------------------------------------------------
+      # 4. Run tests
+      # -----------------------------------------------------------------------
+      - name: Run tests
+        run: npm test
+
+      # -----------------------------------------------------------------------
+      # 5. DevSecOps — SAST scan with Snyk
+      #
+      #    Snyk analyses your dependency tree for known CVEs and flags any
+      #    vulnerability at or above the configured severity threshold.
+      #
+      #    Requirements:
+      #      - Add your Snyk API token to GitHub Secrets as SNYK_TOKEN.
+      #        (Get it free at https://app.snyk.io/account)
+      #
+      #    Note: The SARIF upload step is intentionally omitted to avoid
+      #    path-resolution errors in repositories without Code Scanning enabled.
+      # -----------------------------------------------------------------------
+      - name: Run Snyk SAST security scan
+        uses: snyk/actions/node@master
+        continue-on-error: false
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
