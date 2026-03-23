@@ -4,36 +4,6 @@ Overview
 
 DriveCore is a microservices-based automobile service and repair management system designed to streamline vehicle repair appointments, inventory management, billing, and user authentication. The system follows a distributed architecture with five independent microservices, each responsible for a specific business domain.
 
-Architecture
-
-
-┌─────────────────────────────────────────────────────────────────┐
-│                        React Frontend                           │
-│                         (Port 3000)                             │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         API Gateway                             │
-│                  (Load Balancer / Reverse Proxy)                │
-└─────────────────────────────────────────────────────────────────┘
-            │            │            │            │
-            ▼            ▼            ▼            ▼
-     ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐
-     │   User    │ │  Booking  │ │ Inventory │ │  Billing  │
-     │  Service  │ │  Service  │ │  Service  │ │  Service  │
-     │   :3001   │ │   :3002   │ │   :3003   │ │   :3004   │
-     └───────────┘ └───────────┘ └───────────┘ └───────────┘
-            │            │            │            │
-            └────────────┴────────────┴────────────┘
-                              │
-                              ▼
-                     ┌───────────────┐
-                     │  PostgreSQL   │
-                     │   Database    │
-                     │ (per service) │
-                     └───────────────┘
-
 Microservices
 
 1. DriveCore User Service (Port: 3001)
