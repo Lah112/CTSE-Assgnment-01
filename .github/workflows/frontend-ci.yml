@@ -19,6 +19,7 @@ on:
       - "drivecore-frontend/**"
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   AWS_REGION: eu-north-1
   ECR_REPOSITORY: frontend-service
   ECS_CLUSTER: driveCore-Cluster
@@ -26,6 +27,7 @@ env:
   ECS_TASK_FAMILY: td-frontend
   CONTAINER_NAME: frontend-container
   SERVICE_DIR: drivecore-frontend
+
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
