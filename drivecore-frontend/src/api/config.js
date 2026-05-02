@@ -1,8 +1,11 @@
-const ALB_URL = "http://drivecore-alb-2117620556.eu-north-1.elb.amazonaws.com"; 
+const { VITE_AUTH_SERVICE_URL, VITE_BOOKING_SERVICE_URL, VITE_INVENTORY_SERVICE_URL, VITE_BILLING_SERVICE_URL } =
+  import.meta.env;
 
-export const API_URLS = {
-  auth: `${ALB_URL}/api/auth`,
-  booking: `${ALB_URL}/api/bookings`,
-  inventory: `${ALB_URL}/api/inventory`,
-  billing: `${ALB_URL}/api/billing`,
+const API_URLS = {
+  AUTH: VITE_AUTH_SERVICE_URL,
+  BOOKING: VITE_BOOKING_SERVICE_URL,
+  INVENTORY: VITE_INVENTORY_SERVICE_URL,
+  BILLING: VITE_BILLING_SERVICE_URL,
 };
+
+export default API_URLS;

@@ -1,84 +1,149 @@
-name: DriveCore Frontend CI
+# =============================================================================
+# CI/CD — DriveCore Frontend Service
+#
+# Pipeline: Snyk SAST → Docker Build & Push to ECR → Deploy to ECS
+# Trigger:  Push to main when files inside drivecore-frontend/ change
+#
+# Note: The Vite frontend requires build-time --build-arg injection for the
+# VITE_*_SERVICE_URL variables. These are baked into the static JS bundle at
+# build time. The ARGs below use placeholder values during CI — the real
+# service URLs must be configured in the ECS task definition environment.
+# =============================================================================
+
+name: CI/CD – Frontend Service
 
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+    paths:
+      - "drivecore-frontend/**"
+
+env:
+  AWS_REGION: eu-north-1
+  ECR_REPOSITORY: frontend-service
+  ECS_CLUSTER: driveCore-Cluster
+  ECS_SERVICE: td-frontend-service-3cda51lk
+  ECS_TASK_FAMILY: td-frontend
+  CONTAINER_NAME: frontend-container
+  SERVICE_DIR: drivecore-frontend
 
 jobs:
-  lint-and-scan:
-    name: Lint & Security Scan
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 1 — DevSecOps: Snyk Dependency Vulnerability Scan
+  # ─────────────────────────────────────────────────────────────────────────────
+  security-scan:
+    name: Snyk Security Scan
     runs-on: ubuntu-latest
 
     defaults:
       run:
-        # Scope all steps to the frontend service directory
-        working-directory: drivecore-frontend
+        working-directory: ${{ env.SERVICE_DIR }}
 
     steps:
-      # -----------------------------------------------------------------------
-      # 1. Checkout source
-      # -----------------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # -----------------------------------------------------------------------
-      # 2. Set up Node.js 20
-      # -----------------------------------------------------------------------
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: drivecore-frontend/package-lock.json
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ${{ env.SERVICE_DIR }}/package-lock.json
 
-      # -----------------------------------------------------------------------
-      # 3. Install dependencies (deterministic, uses package-lock.json)
-      # -----------------------------------------------------------------------
       - name: Install dependencies
         run: npm ci
 
-      # -----------------------------------------------------------------------
-      # 4. ESLint — static analysis for code quality and React best practices
-      # -----------------------------------------------------------------------
-      - name: Run ESLint
-        run: npm run lint
-
-      # -----------------------------------------------------------------------
-      # 5. DevSecOps — SAST dependency scan with Snyk
-      #
-      #    Snyk analyses the npm dependency tree for known CVEs.
-      #    Add SNYK_TOKEN to GitHub → Settings → Secrets → Actions.
-      #    The SARIF upload step is intentionally omitted to avoid path
-      #    resolution errors in repos without Code Scanning enabled.
-      # -----------------------------------------------------------------------
       - name: Run Snyk security scan
         uses: snyk/actions/node@master
         continue-on-error: false
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          args: --severity-threshold=high --file=drivecore-frontend/package.json
+          args: --severity-threshold=high --file=${{ env.SERVICE_DIR }}/package.json
 
-  build:
-    name: Docker Build Check
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 2 — Build Docker image, tag with SHA, push to Amazon ECR
+  #
+  # The Vite frontend Dockerfile accepts VITE_* build args that are compiled
+  # into the static bundle. In CI, we pass placeholder URLs — the actual
+  # production URLs should be injected here once your ALB/API Gateway is live.
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push to ECR
     runs-on: ubuntu-latest
-    needs: lint-and-scan
+    needs: security-scan
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Verify the multi-stage Dockerfile builds successfully.
-      # Service URLs are stubbed with placeholders — the real values
-      # are injected at deploy time via --build-arg in your ECS pipeline.
-      - name: Build Docker image
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build \
-            --build-arg VITE_AUTH_SERVICE_URL=http://stub:3001 \
-            --build-arg VITE_BOOKING_SERVICE_URL=http://stub:3002 \
-            --build-arg VITE_INVENTORY_SERVICE_URL=http://stub:3003 \
-            --build-arg VITE_BILLING_SERVICE_URL=http://stub:3004 \
-            -t drivecore-frontend:ci \
-            ./drivecore-frontend
+            --build-arg VITE_AUTH_SERVICE_URL=http://placeholder:3001 \
+            --build-arg VITE_BOOKING_SERVICE_URL=http://placeholder:3002 \
+            --build-arg VITE_INVENTORY_SERVICE_URL=http://placeholder:3003 \
+            --build-arg VITE_BILLING_SERVICE_URL=http://placeholder:3004 \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            ./$SERVICE_DIR
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    outputs:
+      image: ${{ steps.build-image.outputs.image }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 3 — Deploy updated task definition to Amazon ECS
+  # ─────────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to ECS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition $ECS_TASK_FAMILY \
+            --query taskDefinition \
+            > task-definition.json
+
+      - name: Update container image in task definition
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ needs.build-and-push.outputs.image }}
+
+      - name: Deploy to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true

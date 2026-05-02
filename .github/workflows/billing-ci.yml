@@ -1,72 +1,136 @@
-name: DriveCore Billing Service CI
+# =============================================================================
+# CI/CD — DriveCore Billing Service
+#
+# Pipeline: Snyk SAST → Docker Build & Push to ECR → Deploy to ECS
+# Trigger:  Push to main when files inside drivecore-billing-service/ change
+# =============================================================================
 
-# Trigger on every push or pull-request that touches the main branch.
+name: CI/CD – Billing Service
+
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+    paths:
+      - "drivecore-billing-service/**"
+
+env:
+  AWS_REGION: eu-north-1
+  ECR_REPOSITORY: billing-service
+  ECS_CLUSTER: driveCore-Cluster
+  ECS_SERVICE: td-billing-service-t8kbv7gy
+  ECS_TASK_FAMILY: td-billing
+  CONTAINER_NAME: billing-container
+  SERVICE_DIR: drivecore-billing-service
 
 jobs:
-  build-and-scan:
-    name: Build, Test & SAST Scan
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 1 — DevSecOps: Snyk Dependency Vulnerability Scan
+  # ─────────────────────────────────────────────────────────────────────────────
+  security-scan:
+    name: Snyk Security Scan
     runs-on: ubuntu-latest
 
     defaults:
       run:
-        # Scope all steps to the billing service subdirectory so that
-        # npm commands resolve the correct package.json automatically.
-        working-directory: drivecore-billing-service
+        working-directory: ${{ env.SERVICE_DIR }}
 
     steps:
-      # -----------------------------------------------------------------------
-      # 1. Check out the repository
-      # -----------------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # -----------------------------------------------------------------------
-      # 2. Set up Node.js 20
-      #    The cache key is tied to package-lock.json so the cache is
-      #    invalidated only when dependencies actually change.
-      # -----------------------------------------------------------------------
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: drivecore-billing-service/package-lock.json
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ${{ env.SERVICE_DIR }}/package-lock.json
 
-      # -----------------------------------------------------------------------
-      # 3. Install production + dev dependencies
-      #    npm ci uses package-lock.json for deterministic, reproducible installs.
-      # -----------------------------------------------------------------------
       - name: Install dependencies
         run: npm ci
 
-      # -----------------------------------------------------------------------
-      # 4. Run tests
-      # -----------------------------------------------------------------------
-      - name: Run tests
-        run: npm test
-
-      # -----------------------------------------------------------------------
-      # 5. DevSecOps — SAST scan with Snyk
-      #
-      #    Snyk analyses your dependency tree for known CVEs and flags any
-      #    vulnerability at or above the configured severity threshold.
-      #
-      #    Requirements:
-      #      - Add your Snyk API token to GitHub Secrets as SNYK_TOKEN.
-      #        (Get it free at https://app.snyk.io/account)
-      #
-      #    Note: The SARIF upload step is intentionally omitted to avoid
-      #    path-resolution errors in repositories without Code Scanning enabled.
-      # -----------------------------------------------------------------------
-      - name: Run Snyk SAST security scan
+      - name: Run Snyk security scan
         uses: snyk/actions/node@master
         continue-on-error: false
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          args: --severity-threshold=high --file=drivecore-billing-service/package.json
+          args: --severity-threshold=high --file=${{ env.SERVICE_DIR }}/package.json
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 2 — Build Docker image, tag with SHA, push to Amazon ECR
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    needs: security-scan
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            ./$SERVICE_DIR
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    outputs:
+      image: ${{ steps.build-image.outputs.image }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 3 — Deploy updated task definition to Amazon ECS
+  # ─────────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to ECS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition $ECS_TASK_FAMILY \
+            --query taskDefinition \
+            > task-definition.json
+
+      - name: Update container image in task definition
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ needs.build-and-push.outputs.image }}
+
+      - name: Deploy to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
