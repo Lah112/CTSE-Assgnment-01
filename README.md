@@ -203,7 +203,7 @@ Workflow Steps:
 
     Linting - npm run lint (if present)
 
-    Testing - npm test (if present)
+    Testing - npm test (if present).
 
     Building - npm run build (if present)
 
