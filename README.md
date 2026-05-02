@@ -1,4 +1,4 @@
-DriveCore - Automobile Service & Repair Management System
+teDriveCore - Automobile Service & Repair Management System
 
 Overview
 
