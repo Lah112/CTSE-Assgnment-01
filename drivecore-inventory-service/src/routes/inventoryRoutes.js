@@ -4,7 +4,7 @@ const { getAllInventory, addInventoryItem } = require('../controllers/inventoryC
 
 const router = express.Router();
 
-// Validation rules for POST /api/inventory
+// Validation rules for POST /api/inventory 
 const addItemValidation = [
   body('userId')
     .trim()
