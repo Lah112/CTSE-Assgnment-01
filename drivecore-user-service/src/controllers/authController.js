@@ -29,7 +29,7 @@ const register = async (req, res, next) => {
     if (existing) {
       return res.status(409).json({
         success: false,
-        message: 'An account with this email already exists.',
+        message: 'Account already exist with this email',
       });
     }
 
@@ -40,7 +40,7 @@ const register = async (req, res, next) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Account created successfully.',
+      message: 'Account successfully created',
       data: { user },
     });
   } catch (err) {
@@ -127,7 +127,7 @@ const getUserById = async (req, res, next) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: `User with id '${userId}' does not exist.`,
+        message: `Such user with id '${userId}' does not exist.`,
       });
     }
 
