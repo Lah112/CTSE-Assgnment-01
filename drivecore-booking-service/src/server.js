@@ -8,15 +8,15 @@ const start = async () => {
   try {
     // ── Verify database connectivity ─────────────────────────────────────────
     await pool.query('SELECT 1');
-    console.log('[DB] Connected to PostgreSQL successfully.');
+    console.log('Database Connected to PostgreSQL successfully.');
 
     // ── Run auto-migration: create bookings table if it does not exist ────────
     await initTable();
-    console.log('[DB] Schema initialised.');
+    console.log('Database Schema initialised.');
 
     const server = app.listen(env.port, () => {
       console.log(
-        `[SERVER] DriveCore Booking Service running on port ${env.port} in ${env.nodeEnv} mode.`
+        `Server DriveCore Booking Service running on port ${env.port} in ${env.nodeEnv} mode.`
       );
       console.log(`[SERVER] Auth Service URL → ${env.authServiceUrl}`);
     });
